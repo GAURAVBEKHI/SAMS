@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Smart Ambulance Routing System</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Modern, clear font -->
+    <link href="https://fonts.googleapis.com/css?family=DM+Sans:400,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            font-family: 'DM Sans', Arial, sans-serif;
+            color: #222;
+        }
+        body {
+            min-height: 100vh;
+            background: url('projectimage.webp') no-repeat center center fixed;
+            background-size: cover;
+            position: relative;
+        }
+        body::before {
+            content: "";
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: inherit;
+            filter: blur(6px) brightness(0.75);
+            z-index: 0;
+        }
+        .main-heading {
+            text-align: center;
+            margin-top: 30px;
+            margin-bottom: 10px;
+            font-size: 2.2em;
+            letter-spacing: 1px;
+            font-weight: bold;
+            color: #0056b3;
+            text-shadow: 0 2px 12px #fff8, 0 1px 0 #fff;
+        }
+        #map, #mapRoute {
+            height: 60vh;
+            width: 100%;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px #0002;
+            margin-left: auto;
+            margin-right: auto;
+            display: block;
+        }
+        .step { display: none; }
+        .active-step { display: block; }
+        .wizard-nav { margin: 12px 0; text-align: center;}
+        .panel {
+            background: rgba(255,255,255,0.93);
+            border-radius: 16px;
+            box-shadow: 0 4px 24px #0001;
+            padding: 24px;
+            max-width: 500px;
+            margin: 40px auto;
+            position: relative;
+            z-index: 1;
+            text-align: center;
+        }
+        label { 
+            font-weight: 600; 
+            margin-top: 12px; 
+            display: block;
+            text-align: center;
+        }
+        select, input, button {
+            font-family: inherit;
+            font-size: 1em;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-bottom: 18px;
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+            text-align: center;
+        }
+        .step-indicator { margin-bottom: 20px; }
+        .step-indicator span {
+            display: inline-block;
+            margin-right: 8px;
+            padding: 4px 10px;
+            border-radius: 50px;
+            background: #eee;
+        }
+        .step-indicator .current {
+            background: #007bff;
+            color: #fff;
+        }
+        #fitBtn { margin-top: 8px; }
+        .icon-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 700;
+            justify-content: center;
+        }
+        .icon-label img { width: 24px; height: 24px; }
+        .route-summary { font-size: 1.1em; margin-top: 12px; }
+        .marker-label { font-weight: 700; }
+        #main-content { position: relative; z-index: 1; }
+    </style>
+</head>
+<body>
+<h1 class="main-heading">Smart Ambulance Routing System</h1>
+<div id="main-content">
+    <!-- Step 1: Details Form -->
+    <div id="step1" class="panel step active-step">
+        <div class="step-indicator">
+            <span class="current">1</span><span>2</span><span>3</span><span>4</span>
+        </div>
+        <h3>Enter Emergency Details</h3>
+        <label>Your Name</label>
+        <input id="userName" required>
+        <label>Contact Number</label>
+        <input id="userContact" required>
+        <label>Emergency Type</label>
+        <select id="emergencyType">
+            <option value="Accident">Accident</option>
+            <option value="Medical">Medical</option>
+            <option value="Fire">Fire</option>
+        </select>
+        <div class="wizard-nav">
+            <button type="button" onclick="nextStep()">Next &rarr;</button>
+        </div>
+    </div>
+    <!-- Step 2: Accident Location -->
+    <div id="step2" class="panel step">
+        <div class="step-indicator">
+            <span>1</span><span class="current">2</span><span>3</span><span>4</span>
+        </div>
+        <h3>
+            <span class="icon-label">
+                <img src="https://cdn-icons-png.flaticon.com/512/684/684908.png"/>
+                Set Accident Location
+            </span>
+        </h3>
+        <div id="map"></div>
+        <div id="locationStatus" style="margin:8px 0;color:#007bff;"></div>
+        <label>Nearby Ambulances & Hospitals</label>
+        <select id="nearbyMenu"></select>
+        <div class="wizard-nav">
+            <button type="button" onclick="prevStep()">&larr; Back</button>
+            <button type="button" onclick="nextStepFromMap()">Next &rarr;</button>
+            <button id="fitBtn" onclick="fitMap()">Fit Map</button>
+        </div>
+    </div>
+    <!-- Step 3: Select Ambulance & Hospital -->
+    <div id="step3" class="panel step">
+        <div class="step-indicator">
+            <span>1</span><span>2</span><span class="current">3</span><span>4</span>
+        </div>
+        <h3>
+            <span class="icon-label">
+                <img src="https://cdn-icons-png.flaticon.com/512/2965/2965567.png"/>
+                Select Ambulance
+            </span>
+            & 
+            <span class="icon-label">
+                <img src="https://cdn-icons-png.flaticon.com/512/854/854878.png"/>
+                Hospital
+            </span>
+        </h3>
+        <label class="icon-label">
+            <img src="https://cdn-icons-png.flaticon.com/512/2965/2965567.png"/>
+            Nearest Ambulance
+        </label>
+        <select id="ambulanceSelect"></select>
+        <label class="icon-label">
+            <img src="https://cdn-icons-png.flaticon.com/512/854/854878.png"/>
+            Nearest Hospital
+        </label>
+        <select id="hospitalSelect"></select>
+        <div class="wizard-nav">
+            <button type="button" onclick="prevStep()">&larr; Back</button>
+            <button type="button" onclick="nextStep()">Next &rarr;</button>
+        </div>
+    </div>
+    <!-- Step 4: Show Route -->
+    <div id="step4" class="panel step">
+        <div class="step-indicator">
+            <span>1</span><span>2</span><span>3</span><span class="current">4</span>
+        </div>
+        <h3>Optimal Route</h3>
+        <div id="mapRoute" style="height:60vh;margin-bottom:10px;"></div>
+        <div id="routeInfo" class="route-summary"></div>
+        <div class="wizard-nav">
+            <button type="button" onclick="prevStep()">&larr; Back</button>
+        </div>
+    </div>
+</div>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+// --- Step Navigation ---
+let currentStep = 1;
+function showStep(n) {
+    document.querySelectorAll('.step').forEach((el, i) => {
+        if (i + 1 === n) {
+            el.classList.add('active-step');
+        } else {
+            el.classList.remove('active-step');
+        }
+    });
+    currentStep = n;
+    if (n === 2) setTimeout(fitMap, 200);
+    if (n === 4) setTimeout(drawRoute, 200);
+}
+function nextStep() { showStep(currentStep + 1); }
+function prevStep() { showStep(currentStep - 1); }
+
+// --- Data ---
+let ambulanceData = [
+    {id: 'A1', name: "Ambulance 1", lat: 28.6100, lng: 77.2300},
+    {id: 'A2', name: "Ambulance 2", lat: 28.6120, lng: 77.2250}
+];
+let hospitalData = [
+    {id: 'H1', name: "City Hospital", lat: 28.6200, lng: 77.2200},
+    {id: 'H2', name: "Green Care", lat: 28.6180, lng: 77.2400}
+];
+let junctions = [
+    {id: 'J1', lat: 28.6130, lng: 77.2320},
+    {id: 'J2', lat: 28.6170, lng: 77.2280}
+];
+// Edges for Dijkstra/A*
+let EDGES = {
+    'A1': [{to: 'J1', cost: 500}],
+    'A2': [{to: 'J2', cost: 400}],
+    'J1': [{to: 'A1', cost: 500}, {to: 'J2', cost: 300}, {to: 'H1', cost: 700}],
+    'J2': [{to: 'A2', cost: 400}, {to: 'J1', cost: 300}, {to: 'H2', cost: 600}],
+    'H1': [{to: 'J1', cost: 700}],
+    'H2': [{to: 'J2', cost: 600}]
+};
+
+// --- Step 2: Map ---
+let map, accidentMarker = null, accidentLatLng = null;
+let tempAccidentNode = null;
+setTimeout(() => {
+    map = L.map('map').setView([28.6139, 77.2290], 14);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+    map.on('click', function(e) {
+        if (accidentMarker) map.removeLayer(accidentMarker);
+        accidentLatLng = e.latlng;
+        accidentMarker = L.marker(e.latlng, {icon: L.icon({
+            iconUrl: 'https://cdn-icons-png.flaticon.com/512/684/684908.png', iconSize: [32, 32]
+        })}).addTo(map).bindPopup("Accident Location").openPopup();
+        document.getElementById('locationStatus').textContent = 
+            `Selected: (${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)})`;
+        updateNearbyMenu();
+        // Update accident node in graph
+        addAccidentNodeToGraph(e.latlng);
+    });
+}, 200);
+
+function fitMap() {
+    if (map) {
+        map.invalidateSize();
+        if (accidentLatLng)
+            map.setView(accidentLatLng, 15);
+        else
+            map.setView([28.6139, 77.2290], 14);
+    }
+}
+
+// --- Step 2: Nearby Menu (matches place) ---
+function updateNearbyMenu() {
+    const menu = document.getElementById('nearbyMenu');
+    menu.innerHTML = '';
+    if (!accidentLatLng) return;
+    // Find nearest places (ambulances + hospitals)
+    let places = [...ambulanceData, ...hospitalData]
+        .map(p => ({
+            ...p,
+            dist: getDistance(accidentLatLng.lat, accidentLatLng.lng, p.lat, p.lng)
+        }))
+        .sort((a, b) => a.dist - b.dist)
+        .slice(0, 5);
+    places.forEach(p => {
+        let opt = document.createElement('option');
+        let icon = p.id.startsWith('A') 
+            ? "🚑 Ambulance" 
+            : "🏥 Hospital";
+        opt.value = p.id;
+        opt.text = `${icon}: ${p.name} (${(p.dist / 1000).toFixed(2)} km)`;
+        menu.appendChild(opt);
+    });
+}
+
+function nextStepFromMap() {
+    if (!accidentLatLng) {
+        alert("Please select accident location on the map.");
+        return;
+    }
+    updateAmbulanceAndHospitalMenus();
+    nextStep();
+}
+
+// --- Step 3: Ambulance/Hospital Menus ---
+function updateAmbulanceAndHospitalMenus() {
+    // Ambulances by Dijkstra (network distance)
+    let ambs = ambulanceData.map(a => ({
+        ...a,
+        dist: dijkstra(a.id, 'ACC').cost
+    })).sort((a, b) => a.dist - b.dist);
+    let ambSel = document.getElementById('ambulanceSelect');
+    ambSel.innerHTML = '';
+    ambs.forEach(a => {
+        let opt = document.createElement('option');
+        opt.value = a.id;
+        opt.text = `🚑 ${a.name} (${(a.dist / 1000).toFixed(2)} km by road)`;
+        ambSel.appendChild(opt);
+    });
+    // Hospitals by Euclidean
+    let hosps = hospitalData.map(h => ({
+        ...h,
+        dist: getDistance(accidentLatLng.lat, accidentLatLng.lng, h.lat, h.lng)
+    })).sort((a, b) => a.dist - b.dist);
+    let hospSel = document.getElementById('hospitalSelect');
+    hospSel.innerHTML = '';
+    hosps.forEach(h => {
+        let opt = document.createElement('option');
+        opt.value = h.id;
+        opt.text = `🏥 ${h.name} (${(h.dist / 1000).toFixed(2)} km)`;
+        hospSel.appendChild(opt);
+    });
+}
+
+// --- Step 4: Show Route on Map ---
+let routeMap, routeLine, routeMarkers = [];
+function drawRoute() {
+    // Remove previous
+    if (routeMap) { routeMap.remove(); }
+    document.getElementById('routeInfo').textContent = '';
+    routeMap = L.map('mapRoute').setView([28.6139, 77.2290], 14);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+    }).addTo(routeMap);
+    if (!accidentLatLng) return;
+    let ambId = document.getElementById('ambulanceSelect').value;
+    let hospId = document.getElementById('hospitalSelect').value;
+    let amb = ambulanceData.find(a => a.id === ambId);
+    let hosp = hospitalData.find(h => h.id === hospId);
+    // Markers
+    routeMarkers.forEach(m => routeMap.removeLayer(m));
+    routeMarkers = [];
+    routeMarkers.push(L.marker([amb.lat, amb.lng], {icon: L.icon({
+        iconUrl: 'https://cdn-icons-png.flaticon.com/512/2965/2965567.png', iconSize: [32, 32]
+    })}).addTo(routeMap).bindPopup('<span class="marker-label">Ambulance</span><br>' + amb.name));
+    routeMarkers.push(L.marker([accidentLatLng.lat, accidentLatLng.lng], {icon: L.icon({
+        iconUrl: 'https://cdn-icons-png.flaticon.com/512/684/684908.png', iconSize: [32, 32]
+    })}).addTo(routeMap).bindPopup('<span class="marker-label">Accident Location</span>'));
+    routeMarkers.push(L.marker([hosp.lat, hosp.lng], {icon: L.icon({
+        iconUrl: 'https://cdn-icons-png.flaticon.com/512/854/854878.png', iconSize: [32, 32]
+    })}).addTo(routeMap).bindPopup('<span class="marker-label">Hospital</span><br>' + hosp.name));
+    // Route: ambulance -> accident -> hospital (A* for both segments)
+    const toAcc = aStar(ambId, 'ACC');
+    const toHosp = aStar('ACC', hospId);
+    const fullPath = [...toAcc.path, ...toHosp.path.slice(1)];
+    // Build readable route description
+    function nodeLabel(nodeId) {
+        if (nodeId === ambId) return "🚑 Ambulance";
+        if (nodeId === 'ACC') return "⚠️ Accident Location";
+        if (nodeId === hospId) return "🏥 Hospital";
+        return ""; // Hide junctions from summary
+    }
+    const latlngs = fullPath.map(nodeId => {
+        if (nodeId === 'ACC') return [accidentLatLng.lat, accidentLatLng.lng];
+        let node = ambulanceData.find(n => n.id === nodeId) ||
+                   hospitalData.find(n => n.id === nodeId) ||
+                   junctions.find(n => n.id === nodeId);
+        return [node.lat, node.lng];
+    });
+    routeLine = L.polyline(latlngs, {color: 'red', weight: 5}).addTo(routeMap);
+    routeMap.fitBounds(routeLine.getBounds(), {padding: [30, 30]});
+    // Only show Ambulance → Accident Location → Hospital in summary
+    let routeSummary = ["🚑 Ambulance", "⚠️ Accident Location", "🏥 Hospital"].join(" → ");
+    document.getElementById('routeInfo').innerHTML = `<b>Route:</b> ${routeSummary}<br>
+    <b>Total Distance:</b> ${((toAcc.cost || 0) + (toHosp.cost || 0)).toFixed(0)} meters`;
+}
+
+// --- Graph Logic ---
+function addAccidentNodeToGraph(latlng) {
+    tempAccidentNode = { id: 'ACC', lat: latlng.lat, lng: latlng.lng };
+    // Connect to nearest junction
+    const nearest = junctions
+        .map(n => ({
+            id: n.id,
+            dist: getDistance(latlng.lat, latlng.lng, n.lat, n.lng)
+        }))
+        .sort((a, b) => a.dist - b.dist)[0];
+    EDGES['ACC'] = [{to: nearest.id, cost: nearest.dist}];
+    // Remove any previous accident edge from junctions
+    junctions.forEach(j => {
+        EDGES[j.id] = (EDGES[j.id] || []).filter(e => e.to !== 'ACC');
+    });
+    EDGES[nearest.id].push({to: 'ACC', cost: nearest.dist});
+}
+
+// --- Dijkstra and A* ---
+function getDistance(lat1, lng1, lat2, lng2) {
+    // Haversine formula
+    function toRad(x) { return x * Math.PI / 180; }
+    let R = 6371000;
+    let dLat = toRad(lat2 - lat1);
+    let dLng = toRad(lng2 - lng1);
+    let a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+            Math.sin(dLng/2) * Math.sin(dLng/2);
+    let c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+}
+
+function dijkstra(start, goal) {
+    // Simple Dijkstra for small graphs
+    let Q = [start];
+    let dist = {[start]: 0};
+    let prev = {};
+    while (Q.length) {
+        let u = Q.reduce((a, b) => (dist[a] < dist[b] ? a : b));
+        Q = Q.filter(x => x !== u);
+        if (u === goal) break;
+        (EDGES[u] || []).forEach(e => {
+            let alt = dist[u] + e.cost;
+            if (dist[e.to] === undefined || alt < dist[e.to]) {
+                dist[e.to] = alt;
+                prev[e.to] = u;
+                Q.push(e.to);
+            }
+        });
+    }
+    // Build path
+    let path = [], u = goal;
+    if (!dist[goal]) return {cost: Infinity, path: []};
+    while (u) {
+        path.unshift(u);
+        u = prev[u];
+        if (u === start) { path.unshift(u); break; }
+    }
+    return {cost: dist[goal], path};
+}
+
+function aStar(start, goal) {
+    // For this small graph, A* is Dijkstra with heuristic
+    let open = [start];
+    let g = {[start]: 0};
+    let f = {[start]: heuristic(start, goal)};
+    let prev = {};
+    while (open.length) {
+        let u = open.reduce((a, b) => (f[a] < f[b] ? a : b));
+        open = open.filter(x => x !== u);
+        if (u === goal) break;
+        (EDGES[u] || []).forEach(e => {
+            let tentative = g[u] + e.cost;
+            if (g[e.to] === undefined || tentative < g[e.to]) {
+                g[e.to] = tentative;
+                f[e.to] = tentative + heuristic(e.to, goal);
+                prev[e.to] = u;
+                if (!open.includes(e.to)) open.push(e.to);
+            }
+        });
+    }
+    // Build path
+    let path = [], u = goal;
+    if (!g[goal]) return {cost: Infinity, path: []};
+    while (u) {
+        path.unshift(u);
+        u = prev[u];
+        if (u === start) { path.unshift(u); break; }
+    }
+    return {cost: g[goal], path};
+}
+
+function heuristic(a, b) {
+    // Use straight-line distance as heuristic
+    function nodeCoords(id) {
+        if (id === 'ACC' && tempAccidentNode) return tempAccidentNode;
+        return ambulanceData.find(n => n.id === id) ||
+               hospitalData.find(n => n.id === id) ||
+               junctions.find(n => n.id === id);
+    }
+    let n1 = nodeCoords(a), n2 = nodeCoords(b);
+    if (!n1 || !n2) return 0;
+    return getDistance(n1.lat, n1.lng, n2.lat, n2.lng);
+}
+</script>
+</body>
+</html>
